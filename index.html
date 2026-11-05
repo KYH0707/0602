@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>커져라 공!</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px 12px;
+      background: radial-gradient(ellipse at 50% 20%, #354d77 0%, #182238 68%);
+      color: white;
+      font-family: sans-serif;
+    }
+
+    .game {
+      width: min(800px, 96vw);
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      color: #fff4bd;
+      text-shadow: 0 3px 0 #a85e38, 0 6px 12px #080f1c;
+    }
+
+    p {
+      color: #dce7ff;
+      line-height: 1.5;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      background: #a8df9b;
+      border: 5px solid #fff;
+      border-radius: 16px;
+      box-shadow: 0 8px 0 #7b8da9, 0 16px 30px #080f1caa, inset 0 0 0 2px #ffffff66;
+    }
+
+    #status {
+      min-height: 1.5em;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <main class="game">
+    <h1>커져라 공!</h1>
+    <p>방향키 또는 WASD로 움직여 별을 모으세요. 공 크기 30부터 큰 별을 먹을 수 있어요!</p>
+    <canvas id="canvas" width="800" height="500"></canvas>
+    <p id="status"></p>
+  </main>
+
+  <script>
+    const canvas = document.querySelector("#canvas");
+    const ctx = canvas.getContext("2d");
+    const statusText = document.querySelector("#status");
+
+    const TARGET_SIZE = 55;
+    const keys = new Set();
+
+    let ball;
+    let stars;
+    let cleared;
+
+    function randomStar() {
+      const isLarge = Math.random() < 0.25;
+
+      return {
+        x: 30 + Math.random() * (canvas.width - 60),
+        y: 30 + Math.random() * (canvas.height - 60),
+        radius: isLarge ? 15 : 9,
+        growth: isLarge ? 5 : 2,
+        color: isLarge ? "#ff5b5b" : "#ffe44d",
+        sideColor: isLarge ? "#a92e3d" : "#b88a16",
+        points: isLarge ? 5 : 4,
+        requiredSize: isLarge ? 30 : 0
+      };
+    }
+
+    function resetGame() {
+      ball = { x: 100, y: 250, size: 18 };
+      stars = Array.from({ length: 25 }, randomStar);
+      cleared = false;
+      statusText.textContent = `공 크기: ${ball.size} / 목표: ${TARGET_SIZE}`;
+    }
+
+    function starVertices(star, offsetY = 0) {
+      const vertices = [];
+      const innerRadius = star.radius * 0.45;
+
+      for (let i = 0; i < star.points * 2; i++) {
+        const radius = i % 2 === 0 ? star.radius : innerRadius;
+        const angle = -Math.PI / 2 + (i * Math.PI) / star.points;
+        vertices.push({
+          x: star.x + Math.cos(angle) * radius,
+          y: star.y + Math.sin(angle) * radius + offsetY
+        });
+      }
+
+      return vertices;
+    }
+
+    function drawStar(star) {
+      ctx.beginPath();
+      ctx.ellipse(star.x + 3, star.y + star.radius + 5, star.radius * 0.9, star.radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(35, 75, 43, 0.25)";
+      ctx.fill();
+
+      const depth = Math.max(4, star.radius * 0.28);
+      const front = starVertices(star);
+      const back = starVertices(star, depth);
+
+      ctx.beginPath();
+      ctx.moveTo(front[0].x, front[0].y);
+      for (let i = 1; i < front.length; i++) ctx.lineTo(front[i].x, front[i].y);
+      for (let i = back.length - 1; i >= 0; i--) ctx.lineTo(back[i].x, back[i].y);
+      ctx.closePath();
+      ctx.fillStyle = star.sideColor;
+      ctx.fill();
+
+      ctx.beginPath();
+      front.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+
+      const gradient = ctx.createLinearGradient(
+        star.x - star.radius, star.y - star.radius,
+        star.x + star.radius, star.y + star.radius
+      );
+      gradient.addColorStop(0, "#ffffff");
+      gradient.addColorStop(0.25, star.color);
+      gradient.addColorStop(1, star.sideColor);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = star.sideColor;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.ellipse(star.x - star.radius * 0.25, star.y - star.radius * 0.35, star.radius * 0.2, star.radius * 0.1, -0.5, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.fill();
+    }
+
+    function drawBackground() {
+      const background = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      background.addColorStop(0, "#c8f2a9");
+      background.addColorStop(1, "#79c984");
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
+      ctx.lineWidth = 1;
+
+      for (let y = 280; y < canvas.height; y += 28) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      for (let x = -canvas.height; x < canvas.width + canvas.height; x += 55) {
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 235);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const light = ctx.createRadialGradient(170, 70, 10, 170, 70, 330);
+      light.addColorStop(0, "rgba(255, 255, 220, 0.35)");
+      light.addColorStop(1, "rgba(255, 255, 220, 0)");
+      ctx.fillStyle = light;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawBall() {
+      ctx.beginPath();
+      ctx.ellipse(ball.x + ball.size * 0.18, ball.y + ball.size * 0.82, ball.size * 0.92, ball.size * 0.3, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(30, 65, 50, 0.3)";
+      ctx.fill();
+
+      const gradient = ctx.createRadialGradient(
+        ball.x - ball.size * 0.38,
+        ball.y - ball.size * 0.42,
+        ball.size * 0.04,
+        ball.x + ball.size * 0.18,
+        ball.y + ball.size * 0.2,
+        ball.size * 1.15
+      );
+      gradient.addColorStop(0, "#fffde7");
+      gradient.addColorStop(0.18, "#fff176");
+      gradient.addColorStop(0.55, "#ffb74d");
+      gradient.addColorStop(0.82, "#ff7043");
+      gradient.addColorStop(1, "#a83231");
+
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.size, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, ball.size * 0.09);
+      ctx.strokeStyle = "#a83b31";
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.ellipse(ball.x - ball.size * 0.32, ball.y - ball.size * 0.4, ball.size * 0.25, ball.size * 0.12, -0.65, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.82)";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(ball.x - ball.size * 0.12, ball.y - ball.size * 0.18, Math.max(1.5, ball.size * 0.06), 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.fill();
+    }
+
+    function update(deltaTime) {
+      if (cleared) return;
+
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("arrowleft") || keys.has("a")) dx--;
+      if (keys.has("arrowright") || keys.has("d")) dx++;
+      if (keys.has("arrowup") || keys.has("w")) dy--;
+      if (keys.has("arrowdown") || keys.has("s")) dy++;
+
+      const length = Math.hypot(dx, dy) || 1;
+      const speed = 230 / (1 + ball.size / 45);
+      ball.x += (dx / length) * speed * deltaTime;
+      ball.y += (dy / length) * speed * deltaTime;
+
+      ball.x = Math.max(ball.size, Math.min(canvas.width - ball.size, ball.x));
+      ball.y = Math.max(ball.size, Math.min(canvas.height - ball.size, ball.y));
+
+      stars = stars.filter(star => {
+        const distance = Math.hypot(ball.x - star.x, ball.y - star.y);
+        const canEat = ball.size >= star.requiredSize;
+        const touching = distance < ball.size + star.radius;
+        if (canEat && touching) {
+          ball.size += star.growth;
+          return false;
+        }
+        return true;
+      });
+
+      while (stars.length < 20) stars.push(randomStar());
+
+      if (ball.size >= TARGET_SIZE) {
+        cleared = true;
+        statusText.textContent = "🎉 클리어! R 키를 눌러 다시 시작하세요.";
+      } else {
+        statusText.textContent = `공 크기: ${Math.floor(ball.size)} / 목표: ${TARGET_SIZE}`;
+      }
+    }
+
+    function draw() {
+      drawBackground();
+      for (const star of stars) drawStar(star);
+      drawBall();
+
+      if (cleared) {
+        ctx.fillStyle = "rgba(12, 22, 38, 0.58)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff4bd";
+        ctx.font = "bold 48px sans-serif";
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#000";
+        ctx.shadowBlur = 12;
+        ctx.fillText("CLEAR!", canvas.width / 2, canvas.height / 2);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    let previousTime = 0;
+
+    function gameLoop(time) {
+      const deltaTime = Math.min((time - previousTime) / 1000, 0.05);
+      previousTime = time;
+      update(deltaTime);
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener("keydown", event => {
+      const key = event.key.toLowerCase();
+      if (["arrowleft", "arrowright", "arrowup", "arrowdown", " "].includes(key)) {
+        event.preventDefault();
+      }
+      keys.add(key);
+      if (key === "r") resetGame();
+    });
+
+    window.addEventListener("keyup", event => {
+      keys.delete(event.key.toLowerCase());
+    });
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
